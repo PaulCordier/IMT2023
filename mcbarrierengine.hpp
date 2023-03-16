@@ -75,7 +75,8 @@ namespace QuantLib {
                           Real requiredTolerance,
                           Size maxSamples,
                           bool isBiased,
-                          BigNatural seed);
+                          BigNatural seed,
+                          bool isConstantBS);
         void calculate() const override {
             Real spot = process_->x0();
             QL_REQUIRE(spot > 0.0, "negative or null underlying given");
@@ -88,6 +89,9 @@ namespace QuantLib {
             results_.errorEstimate =
                 this->mcModel_->sampleAccumulator().errorEstimate();
         }
+
+    private:
+        bool isConstantBS;
 
       protected:
         // McSimulation implementation
@@ -109,6 +113,7 @@ namespace QuantLib {
         bool isBiased_;
         bool brownianBridge_;
         BigNatural seed_;
+        bool isConstantBS_;
     };
 
 
@@ -128,6 +133,8 @@ namespace QuantLib {
         MakeMCBarrierEngine_2& withBias(bool b = true);
         MakeMCBarrierEngine_2& withSeed(BigNatural seed);
         MakeMCBarrierEngine_2& withConstantParameters(bool b = true);
+        MakeMCBarrierEngine_2& isConstantBS(bool isConstantBS);
+
         // conversion to pricing engine
         operator ext::shared_ptr<PricingEngine>() const;
       private:
@@ -136,6 +143,7 @@ namespace QuantLib {
         Size steps_, stepsPerYear_, samples_, maxSamples_;
         Real tolerance_;
         BigNatural seed_ = 0;
+        bool isConstantBS_;
     };
 
 
@@ -152,11 +160,12 @@ namespace QuantLib {
         Real requiredTolerance,
         Size maxSamples,
         bool isBiased,
-        BigNatural seed)
+        BigNatural seed,
+        bool isConstantBS)
     : McSimulation<SingleVariate, RNG, S>(antitheticVariate, false), process_(std::move(process)),
       timeSteps_(timeSteps), timeStepsPerYear_(timeStepsPerYear), requiredSamples_(requiredSamples),
       maxSamples_(maxSamples), requiredTolerance_(requiredTolerance), isBiased_(isBiased),
-      brownianBridge_(brownianBridge), seed_(seed) {
+      brownianBridge_(brownianBridge), seed_(seed), isConstantBS_(isConstantBS) {
         QL_REQUIRE(timeSteps != Null<Size>() ||
                    timeStepsPerYear != Null<Size>(),
                    "no time steps provided");
@@ -233,7 +242,16 @@ namespace QuantLib {
     inline MakeMCBarrierEngine_2<RNG, S>::MakeMCBarrierEngine_2(
         ext::shared_ptr<GeneralizedBlackScholesProcess> process)
     : process_(std::move(process)), steps_(Null<Size>()), stepsPerYear_(Null<Size>()),
-      samples_(Null<Size>()), maxSamples_(Null<Size>()), tolerance_(Null<Real>()) {}
+      samples_(Null<Size>()), maxSamples_(Null<Size>()), tolerance_(Null<Real>()), isConstantBS_(false) {}
+
+    template <class RNG, class S>
+    inline MakeMCBarrierEngine_2<RNG, S>&
+        MakeMCBarrierEngine_2<RNG, S>::isConstantBS(bool isConstantBS) {
+        this->isConstantBS_ = isConstantBS;
+        return *this;
+    }
+
+
 
     template <class RNG, class S>
     inline MakeMCBarrierEngine_2<RNG,S>&
@@ -327,7 +345,8 @@ namespace QuantLib {
                                      samples_, tolerance_,
                                      maxSamples_,
                                      biased_,
-                                     seed_));
+                                     seed_, 
+                                     isConstantBS_));
     }
 
 }

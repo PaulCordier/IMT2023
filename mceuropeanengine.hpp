@@ -60,9 +60,26 @@ namespace QuantLib {
              Size requiredSamples,
              Real requiredTolerance,
              Size maxSamples,
-             BigNatural seed);
-      protected:
-        boost::shared_ptr<path_pricer_type> pathPricer() const;
+             BigNatural seed,
+             bool isConstantBS); //Here modifying every constructor of the mceuropeanengine class
+
+    private:
+        bool isConstantBS;
+
+
+        BlackScholesProcess* bsProcess;
+
+        if (this -> isConstantBS) {
+            bsProcess = new ConstantBlackScholesProcess(S0, r, sigma);
+        }
+        else {
+            bsProcess = new BlackScholesProcess(S0, r, sigma);
+        }
+
+
+
+    protected:
+        boost::shared_ptr<path_pricer_type> pathPricer() const override; //override the path pricer
     };
 
     //! Monte Carlo European engine factory
@@ -81,6 +98,7 @@ namespace QuantLib {
         MakeMCEuropeanEngine_2& withSeed(BigNatural seed);
         MakeMCEuropeanEngine_2& withAntitheticVariate(bool b = true);
         MakeMCEuropeanEngine_2& withConstantParameters(bool b = true);
+        MakeMCEuropeanEngine_2& isConstantBS(bool isConstantBS); //creating the new function for this class, described below.
         // conversion to pricing engine
         operator boost::shared_ptr<PricingEngine>() const;
       private:
@@ -90,6 +108,7 @@ namespace QuantLib {
         Real tolerance_;
         bool brownianBridge_;
         BigNatural seed_;
+        bool isConstantBS_;
     };
 
     class EuropeanPathPricer_2 : public PathPricer<Path> {
@@ -117,7 +136,8 @@ namespace QuantLib {
              Size requiredSamples,
              Real requiredTolerance,
              Size maxSamples,
-             BigNatural seed)
+             BigNatural seed ,
+             bool isConstantBS)
     : MCVanillaEngine<SingleVariate,RNG,S>(process,
                                            timeSteps,
                                            timeStepsPerYear,
@@ -127,7 +147,10 @@ namespace QuantLib {
                                            requiredSamples,
                                            requiredTolerance,
                                            maxSamples,
-                                           seed) {}
+                                           seed
+                                           ) {
+        this->isConstantBS = isConstantBS;
+    }
 
 
     template <class RNG, class S>
@@ -160,7 +183,17 @@ namespace QuantLib {
     : process_(process), antithetic_(false),
       steps_(Null<Size>()), stepsPerYear_(Null<Size>()),
       samples_(Null<Size>()), maxSamples_(Null<Size>()),
-      tolerance_(Null<Real>()), brownianBridge_(false), seed_(0) {}
+      tolerance_(Null<Real>()), brownianBridge_(false), seed_(0), isConstantBS_(false) {}
+
+    template <class RNG, class S>
+    inline MakeMCEuropeanEngine_2<RNG, S>&
+        MakeMCEuropeanEngine_2<RNG, S>::isConstantBS(bool isConstantBS) {
+        this->isConstantBS_ = isConstantBS;
+        return *this;
+    }
+
+
+
 
     template <class RNG, class S>
     inline MakeMCEuropeanEngine_2<RNG,S>&
@@ -183,6 +216,26 @@ namespace QuantLib {
                    "tolerance already set");
         samples_ = samples;
         return *this;
+    }
+
+    template <class RNG, class S>
+    inline
+        MakeMCEuropeanEngine_2<RNG, S>::operator boost::shared_ptr<PricingEngine>()
+        const {
+        QL_REQUIRE(steps_ != Null<Size>() || stepsPerYear_ != Null<Size>(),
+            "number of steps not given");
+        QL_REQUIRE(steps_ == Null<Size>() || stepsPerYear_ == Null<Size>(),
+            "number of steps overspecified");
+        return boost::shared_ptr<PricingEngine>(new
+            MCEuropeanEngine_2<RNG, S>(process_,
+                steps_,
+                stepsPerYear_,
+                brownianBridge_,
+                antithetic_,
+                samples_, tolerance_,
+                maxSamples_,
+                seed_,
+                isConstantBS_));
     }
 
     template <class RNG, class S>
@@ -231,24 +284,6 @@ namespace QuantLib {
         return *this;
     }
 
-    template <class RNG, class S>
-    inline
-    MakeMCEuropeanEngine_2<RNG,S>::operator boost::shared_ptr<PricingEngine>()
-                                                                      const {
-        QL_REQUIRE(steps_ != Null<Size>() || stepsPerYear_ != Null<Size>(),
-                   "number of steps not given");
-        QL_REQUIRE(steps_ == Null<Size>() || stepsPerYear_ == Null<Size>(),
-                   "number of steps overspecified");
-        return boost::shared_ptr<PricingEngine>(new
-            MCEuropeanEngine_2<RNG,S>(process_,
-                                      steps_,
-                                      stepsPerYear_,
-                                      brownianBridge_,
-                                      antithetic_,
-                                      samples_, tolerance_,
-                                      maxSamples_,
-                                      seed_));
-    }
 
 
 
