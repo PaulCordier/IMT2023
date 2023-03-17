@@ -36,25 +36,67 @@ namespace QuantLib {
     /*!  \ingroup asianengines */
     template <class RNG = PseudoRandom, class S = Statistics>
     class MCDiscreteArithmeticASEngine_2
-        : public MCDiscreteAveragingAsianEngineBase<SingleVariate,RNG,S> {
-      public:
+        : public MCDiscreteAveragingAsianEngineBase<SingleVariate, RNG, S> {
+    public:
         typedef
-        typename MCDiscreteAveragingAsianEngineBase<SingleVariate,RNG,S>::path_generator_type
+            typename MCDiscreteAveragingAsianEngineBase<SingleVariate, RNG, S>::path_generator_type
             path_generator_type;
-        typedef typename MCDiscreteAveragingAsianEngineBase<SingleVariate,RNG,S>::path_pricer_type
+        typedef typename MCDiscreteAveragingAsianEngineBase<SingleVariate, RNG, S>::path_pricer_type
             path_pricer_type;
-        typedef typename MCDiscreteAveragingAsianEngineBase<SingleVariate,RNG,S>::stats_type
+        typedef typename MCDiscreteAveragingAsianEngineBase<SingleVariate, RNG, S>::stats_type
             stats_type;
         // constructor
         MCDiscreteArithmeticASEngine_2(
-             const ext::shared_ptr<GeneralizedBlackScholesProcess>& process,
-             bool brownianBridge,
-             bool antitheticVariate,
-             Size requiredSamples,
-             Real requiredTolerance,
-             Size maxSamples,
-             BigNatural seed);
-      protected:
+            const ext::shared_ptr<GeneralizedBlackScholesProcess>& process,
+            bool brownianBridge,
+            bool antitheticVariate,
+            Size requiredSamples,
+            Real requiredTolerance,
+            Size maxSamples,
+            BigNatural seed,
+            bool isConstantBS);
+
+
+    private:
+        bool isConstantBS_;
+
+        ext::shared_ptr<path_generator_type> pathGenerator() const override {
+
+            Size dimensions = MCDiscreteAveragingAsianEngineBase<SingleVariate, RNG, S>::process_->factors();
+            TimeGrid grid = this->timeGrid();
+            typename RNG::rsg_type generator = RNG::make_sequence_generator(dimensions * (grid.size() - 1), MCDiscreteAveragingAsianEngineBase<SingleVariate, RNG, S>::seed_);
+
+            //If we want to use constant parameters
+            if (isConstantBS_) {
+                ext::shared_ptr<GeneralizedBlackScholesProcess> BS = ext::dynamic_pointer_cast<GeneralizedBlackScholesProcess>(this->process_); //conversion to a dynamic pointer
+                Time extractionTime = grid.back();
+
+                //We used functions implemented in GeneralizedBlackScholesProcess to collect the strike, underlying value, risk free rate, volatility and the dividend
+
+                double S0 = BS->x0();
+                double strike = ext::dynamic_pointer_cast<StrikedTypePayoff>(MCDiscreteAveragingAsianEngineBase<SingleVariate, RNG, S>::arguments_.payoff)->strike();
+                double vol = BS->blackVolatility()->blackVol(extractionTime, strike);
+                double r = BS->riskFreeRate()->zeroRate(extractionTime, Continuous);
+                double div = BS->dividendYield()->zeroRate(extractionTime, Continuous);
+
+                //With these parameters we create a new ConstantBlackScholesProcess defined earlier
+                ext::shared_ptr<ConstantBlackScholesProcess> constBS(new ConstantBlackScholesProcess(S0, r, vol, div));
+
+                //We create a new path generator with the constant parameters
+                return ext::shared_ptr<path_generator_type>(new path_generator_type(constBS, grid, generator, MCDiscreteAveragingAsianEngineBase<SingleVariate, RNG, S>::brownianBridge_));
+
+            }
+
+            else {
+
+                //We create a classic path generator
+                return ext::shared_ptr<path_generator_type>(new path_generator_type(MCDiscreteAveragingAsianEngineBase<SingleVariate, RNG, S>::process_, grid, generator, MCDiscreteAveragingAsianEngineBase<SingleVariate, RNG, S>::brownianBridge_));
+            }
+
+
+        }
+
+    protected:
         ext::shared_ptr<path_pricer_type> pathPricer() const override;
     };
 
@@ -63,28 +105,31 @@ namespace QuantLib {
 
     template <class RNG, class S>
     inline
-    MCDiscreteArithmeticASEngine_2<RNG,S>::MCDiscreteArithmeticASEngine_2(
-             const ext::shared_ptr<GeneralizedBlackScholesProcess>& process,
-             bool brownianBridge,
-             bool antitheticVariate,
-             Size requiredSamples,
-             Real requiredTolerance,
-             Size maxSamples,
-             BigNatural seed)
-    : MCDiscreteAveragingAsianEngineBase<SingleVariate,RNG,S>(process,
-                                                              brownianBridge,
-                                                              antitheticVariate,
-                                                              false,
-                                                              requiredSamples,
-                                                              requiredTolerance,
-                                                              maxSamples,
-                                                              seed) {}
+        MCDiscreteArithmeticASEngine_2<RNG, S>::MCDiscreteArithmeticASEngine_2(
+            const ext::shared_ptr<GeneralizedBlackScholesProcess>& process,
+            bool brownianBridge,
+            bool antitheticVariate,
+            Size requiredSamples,
+            Real requiredTolerance,
+            Size maxSamples,
+            BigNatural seed,
+            bool isConstantBS)
+        : MCDiscreteAveragingAsianEngineBase<SingleVariate, RNG, S>(process,
+            brownianBridge,
+            antitheticVariate,
+            false,
+            requiredSamples,
+            requiredTolerance,
+            maxSamples,
+            seed) {
+        isConstantBS_ = isConstantBS;
+    }
 
     template <class RNG, class S>
     inline
-    ext::shared_ptr<
-               typename MCDiscreteArithmeticASEngine_2<RNG,S>::path_pricer_type>
-    MCDiscreteArithmeticASEngine_2<RNG,S>::pathPricer() const {
+        ext::shared_ptr<
+        typename MCDiscreteArithmeticASEngine_2<RNG, S>::path_pricer_type>
+        MCDiscreteArithmeticASEngine_2<RNG, S>::pathPricer() const {
 
         ext::shared_ptr<PlainVanillaPayoff> payoff =
             ext::dynamic_pointer_cast<PlainVanillaPayoff>(
@@ -102,7 +147,7 @@ namespace QuantLib {
         QL_REQUIRE(process, "Black-Scholes process required");
 
         return ext::shared_ptr<typename
-            MCDiscreteArithmeticASEngine_2<RNG,S>::path_pricer_type>(
+            MCDiscreteArithmeticASEngine_2<RNG, S>::path_pricer_type>(
                 new ArithmeticASOPathPricer(
                     payoff->optionType(),
                     process->riskFreeRate()->discount(exercise->lastDate()),
@@ -114,7 +159,7 @@ namespace QuantLib {
 
     template <class RNG = PseudoRandom, class S = Statistics>
     class MakeMCDiscreteArithmeticASEngine_2 {
-      public:
+    public:
         explicit MakeMCDiscreteArithmeticASEngine_2(
             ext::shared_ptr<GeneralizedBlackScholesProcess> process);
         // named parameters
@@ -124,91 +169,94 @@ namespace QuantLib {
         MakeMCDiscreteArithmeticASEngine_2& withMaxSamples(Size samples);
         MakeMCDiscreteArithmeticASEngine_2& withSeed(BigNatural seed);
         MakeMCDiscreteArithmeticASEngine_2& withAntitheticVariate(bool b = true);
-        MakeMCDiscreteArithmeticASEngine_2& withConstantParameters(bool b = true);
+        MakeMCDiscreteArithmeticASEngine_2& withConstantParameters(bool isConstantBS);
         // conversion to pricing engine
         operator ext::shared_ptr<PricingEngine>() const;
-      private:
+    private:
         ext::shared_ptr<GeneralizedBlackScholesProcess> process_;
         bool antithetic_ = false;
         Size samples_, maxSamples_;
         Real tolerance_;
         bool brownianBridge_ = true;
         BigNatural seed_ = 0;
+        bool isConstantBS_ = false;
     };
 
     template <class RNG, class S>
     inline MakeMCDiscreteArithmeticASEngine_2<RNG, S>::MakeMCDiscreteArithmeticASEngine_2(
         ext::shared_ptr<GeneralizedBlackScholesProcess> process)
-    : process_(std::move(process)), samples_(Null<Size>()), maxSamples_(Null<Size>()),
-      tolerance_(Null<Real>()) {}
+        : process_(std::move(process)), samples_(Null<Size>()), maxSamples_(Null<Size>()),
+        tolerance_(Null<Real>()) {}
 
     template <class RNG, class S>
-    inline MakeMCDiscreteArithmeticASEngine_2<RNG,S>&
-    MakeMCDiscreteArithmeticASEngine_2<RNG,S>::withSamples(Size samples) {
+    inline MakeMCDiscreteArithmeticASEngine_2<RNG, S>&
+        MakeMCDiscreteArithmeticASEngine_2<RNG, S>::withSamples(Size samples) {
         QL_REQUIRE(tolerance_ == Null<Real>(),
-                   "tolerance already set");
+            "tolerance already set");
         samples_ = samples;
         return *this;
     }
 
     template <class RNG, class S>
-    inline MakeMCDiscreteArithmeticASEngine_2<RNG,S>&
-    MakeMCDiscreteArithmeticASEngine_2<RNG,S>::withAbsoluteTolerance(
-                                                             Real tolerance) {
+    inline MakeMCDiscreteArithmeticASEngine_2<RNG, S>&
+        MakeMCDiscreteArithmeticASEngine_2<RNG, S>::withAbsoluteTolerance(
+            Real tolerance) {
         QL_REQUIRE(samples_ == Null<Size>(),
-                   "number of samples already set");
+            "number of samples already set");
         QL_REQUIRE(RNG::allowsErrorEstimate,
-                   "chosen random generator policy "
-                   "does not allow an error estimate");
+            "chosen random generator policy "
+            "does not allow an error estimate");
         tolerance_ = tolerance;
         return *this;
     }
 
     template <class RNG, class S>
-    inline MakeMCDiscreteArithmeticASEngine_2<RNG,S>&
-    MakeMCDiscreteArithmeticASEngine_2<RNG,S>::withMaxSamples(Size samples) {
+    inline MakeMCDiscreteArithmeticASEngine_2<RNG, S>&
+        MakeMCDiscreteArithmeticASEngine_2<RNG, S>::withMaxSamples(Size samples) {
         maxSamples_ = samples;
         return *this;
     }
 
     template <class RNG, class S>
-    inline MakeMCDiscreteArithmeticASEngine_2<RNG,S>&
-    MakeMCDiscreteArithmeticASEngine_2<RNG,S>::withSeed(BigNatural seed) {
+    inline MakeMCDiscreteArithmeticASEngine_2<RNG, S>&
+        MakeMCDiscreteArithmeticASEngine_2<RNG, S>::withSeed(BigNatural seed) {
         seed_ = seed;
         return *this;
     }
 
     template <class RNG, class S>
-    inline MakeMCDiscreteArithmeticASEngine_2<RNG,S>&
-    MakeMCDiscreteArithmeticASEngine_2<RNG,S>::withBrownianBridge(bool b) {
+    inline MakeMCDiscreteArithmeticASEngine_2<RNG, S>&
+        MakeMCDiscreteArithmeticASEngine_2<RNG, S>::withBrownianBridge(bool b) {
         brownianBridge_ = b;
         return *this;
     }
 
     template <class RNG, class S>
-    inline MakeMCDiscreteArithmeticASEngine_2<RNG,S>&
-    MakeMCDiscreteArithmeticASEngine_2<RNG,S>::withAntitheticVariate(bool b) {
+    inline MakeMCDiscreteArithmeticASEngine_2<RNG, S>&
+        MakeMCDiscreteArithmeticASEngine_2<RNG, S>::withAntitheticVariate(bool b) {
         antithetic_ = b;
         return *this;
     }
 
     template <class RNG, class S>
-    inline MakeMCDiscreteArithmeticASEngine_2<RNG,S>&
-    MakeMCDiscreteArithmeticASEngine_2<RNG,S>::withConstantParameters(bool b) {
+    inline MakeMCDiscreteArithmeticASEngine_2<RNG, S>&
+        MakeMCDiscreteArithmeticASEngine_2<RNG, S>::withConstantParameters(bool isConstantBS) {
+        isConstantBS_ = isConstantBS;
         return *this;
     }
 
     template <class RNG, class S>
     inline
-    MakeMCDiscreteArithmeticASEngine_2<RNG,S>::
-    operator ext::shared_ptr<PricingEngine>() const {
+        MakeMCDiscreteArithmeticASEngine_2<RNG, S>::
+        operator ext::shared_ptr<PricingEngine>() const {
         return ext::shared_ptr<PricingEngine>(
-            new MCDiscreteArithmeticASEngine_2<RNG,S>(process_,
-                                                      brownianBridge_,
-                                                      antithetic_,
-                                                      samples_, tolerance_,
-                                                      maxSamples_,
-                                                      seed_));
+            new MCDiscreteArithmeticASEngine_2<RNG, S>(process_,
+                brownianBridge_,
+                antithetic_,
+                samples_, tolerance_,
+                maxSamples_,
+                seed_,
+                isConstantBS_));
     }
 
 }
